@@ -4,19 +4,19 @@ try:
 except ImportError:
 	from distutils.core import setup, Extension
 	
-# If you change the version here, also change it in jsonlib.c and .py.
-version = '1.3.10'
+# If you change the version here, also change it in jsonlib2.c and .py.
+version = '1.4'
 
 setup (
-	name = 'jsonlib',
+	name = 'jsonlib2',
 	version = version,
 	description = "JSON serializer/deserializer for Python",
 	long_description = open (join (dirname (__file__), 'README.txt')).read (),
-	author = "John Millikin",
-	author_email = "jmillikin@gmail.com",
+	author = "Alec Flett",
+	author_email = "alecf@flett.org",
 	license = "MIT",
-	url = "https://launchpad.net/jsonlib",
-	download_url = "http://cheeseshop.python.org/pypi/jsonlib/%s" % version,
+	url = "http://code.google.com/p/jsonlib2/",
+	download_url = "http://code.google.com/p/jsonlib2/downloads/list",
 	platforms = ["Platform Independent"],
 	classifiers = [
 		"Development Status :: 5 - Production/Stable",
@@ -28,6 +28,6 @@ setup (
 	],
 	keywords = ["json"],
 	ext_modules = [
-		Extension ('jsonlib', ['jsonlib.c']),
+		Extension ('jsonlib2', ['jsonlib2.c']),
 	],
 )

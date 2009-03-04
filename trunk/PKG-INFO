@@ -1,12 +1,12 @@
 Metadata-Version: 1.0
-Name: jsonlib
-Version: 1.3.10
+Name: jsonlib2
+Version: 1.4
 Summary: JSON serializer/deserializer for Python
-Home-page: https://launchpad.net/jsonlib
-Author: John Millikin
-Author-email: jmillikin@gmail.com
+Home-page: http://code.google.com/p/jsonlib2/
+Author: Alec Flett
+Author-email: alecf@flett.org
 License: MIT
-Download-URL: http://cheeseshop.python.org/pypi/jsonlib/1.3.10
+Download-URL: http://code.google.com/p/jsonlib2/downloads/list
 Description: :Author: John Millikin
         :Copyright: This document has been placed in the public domain.
         

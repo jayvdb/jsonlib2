@@ -106,6 +106,7 @@ struct _Encoder
 	int ascii_only;
 	int coerce_keys;
 	PyObject *on_unknown;
+    int allow_non_numbers;
 	
 	int (*append_ascii) (Encoder *, const char *, const size_t);
 	int (*append_unicode) (Encoder *, PyObject *);
@@ -1456,18 +1457,24 @@ get_separators (PyObject *indent_string, int indent_level,
 static PyObject *
 write_string (Encoder *encoder, PyObject *string)
 {
+	PyObject *exc_type, *exc_value, *exc_traceback;
 	PyObject *unicode, *retval;
 	int safe = TRUE;
 	char *buffer;
 	size_t ii;
 	Py_ssize_t str_len;
+    char *mycopy;
 	
 	/* Scan the string for non-ASCII values. If none exist, the string
 	 * can be returned directly (with quotes).
 	**/
 	if (PyString_AsStringAndSize (string, &buffer, &str_len) == -1)
 		return NULL;
-	
+
+    mycopy = malloc(str_len + 1);
+    strncpy(mycopy, buffer, str_len);
+    mycopy[str_len] = 0;
+    
 	for (ii = 0; ii < (size_t)str_len; ++ii)
 	{
 		if (buffer[ii] == '"' ||
@@ -1490,10 +1497,19 @@ write_string (Encoder *encoder, PyObject *string)
 	 * mechanism.
 	**/
 	Py_INCREF (string);
+	PyErr_Fetch (&exc_type, &exc_value, &exc_traceback);
 	unicode = PyString_AsDecodedObject (string, "ascii", "strict");
+	PyErr_Restore (exc_type, exc_value, exc_traceback);
+	if (!unicode) {
+        unicode = unicode_autodetect(string);
+        if (!unicode) {
+            Py_DECREF (string);
+            return NULL;
+        }
+	}
+	PyErr_Clear ();
 	Py_DECREF (string);
-	if (!unicode) return NULL;
-	
+    
 	if (encoder->ascii_only)
 		retval = unicode_to_ascii (unicode);
 	else
@@ -2147,13 +2163,28 @@ write_float (Encoder *encoder, PyObject *value)
 	double val = PyFloat_AS_DOUBLE (value);
 	if (Py_IS_NAN (val))
 	{
-		PyErr_SetString (WriteError,
-				 "Cannot serialize NaN.");
-		return NULL;
+        if (encoder->allow_non_numbers) {
+            Py_INCREF(encoder->nan_str);
+            return encoder->nan_str;
+        }
+        
+        PyErr_SetString (WriteError,
+                         "Cannot serialize NaN.");
+        return NULL;
 	}
 	
 	if (Py_IS_INFINITY (val))
 	{
+        if (encoder->allow_non_numbers) {
+            if (val > 0) {
+                Py_INCREF(encoder->inf_str);
+                return encoder->inf_str;
+            } else {
+                Py_INCREF(encoder->neg_inf_str);
+                return encoder->neg_inf_str;
+            }
+        }
+        
 		const char *msg;
 		if (val > 0)
 			msg = "Cannot serialize Infinity.";
@@ -2431,7 +2462,7 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	
 	static char *kwlist[] = {"value", "sort_keys", "indent",
 	                         "ascii_only", "coerce_keys", "encoding",
-	                         "on_unknown", NULL};
+	                         "on_unknown", "allow_non_numbers", NULL};
 	
 	/* Defaults */
 	encoder_base->sort_keys = FALSE;
@@ -2439,9 +2470,10 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	encoder_base->ascii_only = TRUE;
 	encoder_base->coerce_keys = FALSE;
 	encoder_base->on_unknown = Py_None;
+    encoder_base->allow_non_numbers = FALSE;
 	encoding = "utf-8";
 	
-	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "O|iOiizO:write",
+	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "O|iOiizOi:write",
 	                                  kwlist,
 	                                  &value,
 	                                  &encoder_base->sort_keys,
@@ -2449,7 +2481,8 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	                                  &encoder_base->ascii_only,
 	                                  &encoder_base->coerce_keys,
 	                                  &encoding,
-	                                  &encoder_base->on_unknown))
+	                                  &encoder_base->on_unknown,
+                                      &encoder_base->allow_non_numbers))
 		return NULL;
 	
 	encoder_base->append_ascii = buffer_encoder_append_ascii;
@@ -2493,7 +2526,7 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	
 	static char *kwlist[] = {"value", "fp", "sort_keys", "indent",
 	                         "ascii_only", "coerce_keys", "encoding",
-	                         "on_unknown", NULL};
+	                         "on_unknown", "allow_infinity", NULL};
 	
 	/* Defaults */
 	encoder_base->sort_keys = FALSE;
@@ -2501,9 +2534,10 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	encoder_base->ascii_only = TRUE;
 	encoder_base->coerce_keys = FALSE;
 	encoder_base->on_unknown = Py_None;
+    encoder_base->allow_non_numbers = FALSE;
 	encoder.encoding = "utf-8";
 	
-	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "OO|iOiizO:dump",
+	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "OO|iOiizOi:dump",
 	                                  kwlist,
 	                                  &value,
 	                                  &encoder.stream,
@@ -2512,7 +2546,8 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	                                  &encoder_base->ascii_only,
 	                                  &encoder_base->coerce_keys,
 	                                  &encoder.encoding,
-	                                  &encoder_base->on_unknown))
+	                                  &encoder_base->on_unknown,
+                                      &encoder_base->allow_non_numbers))
 		return NULL;
 	
 	encoder_base->append_ascii = stream_encoder_append_ascii;
@@ -2604,6 +2639,11 @@ static PyMethodDef module_methods[] = {
 	"	An object that will be called to convert unknown values\n"
 	"	into a JSON-representable value. The default simply raises\n"
 	"	an UnknownSerializerError.\n"
+    "\n"
+    "allow_non_numbers\n"
+    "	Allow serialization of the python values inf (infinity), -inf\n"
+    "	(negative infinity) and nan (not a number) as Infinity, -Infinity,\n"
+    "	and NaN, respectively. Otherwise, will throw an exception\n"
 	"\n"
 	)},
 	
