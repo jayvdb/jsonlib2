@@ -1,8 +1,9 @@
 /**
  * Copyright (C) 2008 John Millikin. See LICENSE.txt for details.
  * Author: John Millikin <jmillikin@gmail.com>
+ * Enhancements by: Alec Flett <alecf@flett.org>
  * 
- * Implementation of jsonlib.
+ * Implementation of jsonlib2.
 **/
 
 /* includes {{{ */
@@ -2631,7 +2632,7 @@ static PyMethodDef module_methods[] = {
 	"	\n"
 	"	If a non-UTF encoding is specified, the resulting\n"
 	"	bytestring might not be readable by many JSON libraries,\n"
-	"	including jsonlib.\n"
+	"	including jsonlib2.\n"
 	"	\n"
 	"	The default encoding is UTF-8.\n"
 	"\n"
@@ -2651,7 +2652,7 @@ static PyMethodDef module_methods[] = {
 };
 
 PyDoc_STRVAR (module_doc,
-	"Implementation of jsonlib."
+	"Implementation of jsonlib2."
 );
 
 PyMODINIT_FUNC
@@ -2660,23 +2661,23 @@ initjsonlib (void)
 	PyObject *module;
 	PyObject *version, *read, *write;
 	
-	if (!(module = Py_InitModule3 ("jsonlib", module_methods,
+	if (!(module = Py_InitModule3 ("jsonlib2", module_methods,
 	                               module_doc)))
 		return;
 	
-	if (!(ReadError = PyErr_NewException ("jsonlib.ReadError",
+	if (!(ReadError = PyErr_NewException ("jsonlib2.ReadError",
 	                                      PyExc_ValueError, NULL)))
 		return;
 	Py_INCREF (ReadError);
 	PyModule_AddObject(module, "ReadError", ReadError);
 	
-	if (!(WriteError = PyErr_NewException ("jsonlib.WriteError",
+	if (!(WriteError = PyErr_NewException ("jsonlib2.WriteError",
 	                                       PyExc_ValueError, NULL)))
 		return;
 	Py_INCREF (WriteError);
 	PyModule_AddObject(module, "WriteError", WriteError);
 	
-	if (!(UnknownSerializerError = PyErr_NewException ("jsonlib.UnknownSerializerError",
+	if (!(UnknownSerializerError = PyErr_NewException ("jsonlib2.UnknownSerializerError",
 	                                                   WriteError, NULL)))
 		return;
 	Py_INCREF (UnknownSerializerError);
@@ -2693,7 +2694,7 @@ initjsonlib (void)
 	PyModule_AddObject (module, "dumps", write);
 	
 	/* If you change the version here, also change it in setup.py and
-	 * jsonlib.py.
+	 * jsonlib2.py.
 	**/
 	version = Py_BuildValue ("(iii)", 1, 3, 10);
 	PyModule_AddObject (module, "__version__", version);

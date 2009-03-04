@@ -15,7 +15,7 @@ JSON that conforms strictly to RFC 4627.
 Usage
 =====
 
-jsonlib has two functions of interest, ``read`` and ``write``. It also
+jsonlib2 has two functions of interest, ``read`` and ``write``. It also
 defines some exception: ``ReadError``, ``WriteError``, and
 ``UnknownSerializerError``.
 
@@ -27,36 +27,36 @@ simple invocations.
 Deserialization
 ---------------
 
-To deserialize a JSON expression, call the ``jsonlib.read`` function with
+To deserialize a JSON expression, call the ``jsonlib2.read`` function with
 an instance of ``str`` or ``unicode``. ::
 
-	>>> import jsonlib
-	>>> jsonlib.read ('["Hello world!"]')
+	>>> import jsonlib2
+	>>> jsonlib2.read ('["Hello world!"]')
 	[u'Hello world!']
 
 Floating-point values
 ~~~~~~~~~~~~~~~~~~~~~
 
-By default, ``jsonlib`` will parse values such as "1.1" into an instance of
+By default, ``jsonlib2`` will parse values such as "1.1" into an instance of
 ``decimal.Decimal``. To use the built-in value type ``float`` instead, set
 the ``use_float`` parameter to ``True``. Please note that this may cause a
 loss of precision when parsing some values. ::
 
-	>>> jsonlib.read ('[1.5]', use_float = True)
+	>>> jsonlib2.read ('[1.5]', use_float = True)
 	[1.5]
-	>>> jsonlib.read ('[1.1]', use_float = True)
+	>>> jsonlib2.read ('[1.1]', use_float = True)
 	[1.1000000000000001]
-	>>> jsonlib.read ('[3.14159265358979323846]', use_float = True)
+	>>> jsonlib2.read ('[3.14159265358979323846]', use_float = True)
 	[3.1415926535897931]
 
 Serialization
 -------------
 
 Serialization has more options, but they are set to reasonable defaults.
-The simplest use is to call ``jsonlib.write`` with a Python value. ::
+The simplest use is to call ``jsonlib2.write`` with a Python value. ::
 
-	>>> import jsonlib
-	>>> jsonlib.write (['Hello world!'])
+	>>> import jsonlib2
+	>>> jsonlib2.write (['Hello world!'])
 	'["Hello world!"]'
 
 Pretty-Printing
@@ -64,7 +64,7 @@ Pretty-Printing
 
 To "pretty-print" the output, pass a value for the ``indent`` parameter. ::
 
-	>>> print jsonlib.write (['Hello world!'], indent = '    ')
+	>>> print jsonlib2.write (['Hello world!'], indent = '    ')
 	[
 	    "Hello world!"
 	]
@@ -77,9 +77,9 @@ By default, mapping keys are serialized in whatever order they are
 stored by Python. To force a consistent ordering (for example, in doctests)
 use the ``sort_keys`` parameter. ::
 
-	>>> jsonlib.write ({'e': 'Hello', 'm': 'World!'})
+	>>> jsonlib2.write ({'e': 'Hello', 'm': 'World!'})
 	'{"m":"World!","e":"Hello"}'
-	>>> jsonlib.write ({'e': 'Hello', 'm': 'World!'}, sort_keys = True)
+	>>> jsonlib2.write ({'e': 'Hello', 'm': 'World!'}, sort_keys = True)
 	'{"e":"Hello","m":"World!"}'
 
 Encoding and Unicode
@@ -88,21 +88,21 @@ Encoding and Unicode
 By default, the output is encoded in UTF-8. If you require a different
 encoding, pass the name of a Python codec as the ``encoding`` parameter. ::
 
-	>>> jsonlib.write (['Hello world!'], encoding = 'utf-16-be')
+	>>> jsonlib2.write (['Hello world!'], encoding = 'utf-16-be')
 	'\x00[\x00"\x00H\x00e\x00l\x00l\x00o\x00 \x00w\x00o\x00r\x00l\x00d\x00!\x00"\x00]'
 
 To retrieve an unencoded ``unicode`` instance, pass ``None`` for the
 encoding. ::
 
-	>>> jsonlib.write (['Hello world!'], encoding = None)
+	>>> jsonlib2.write (['Hello world!'], encoding = None)
 	u'["Hello world!"]'
 
 By default, non-ASCII codepoints are forbidden in the output. To include
 higher codepoints in the output, set ``ascii_only`` to ``False``. ::
 
-	>>> jsonlib.write ([u'Hello \u266a'], encoding = None)
+	>>> jsonlib2.write ([u'Hello \u266a'], encoding = None)
 	u'["Hello \\u266a"]'
-	>>> jsonlib.write ([u'Hello \u266a'], encoding = None, ascii_only = False)
+	>>> jsonlib2.write ([u'Hello \u266a'], encoding = None, ascii_only = False)
 	u'["Hello \u266a"]'
 
 Mapping Key Coercion
@@ -112,10 +112,10 @@ Because JSON objects must have string keys, an exception will be raised when
 non-string keys are encountered in a mapping. It can be useful to coerce
 mapping keys to strings, so the ``coerce_keys`` parameter is available. ::
 
-	>>> jsonlib.write ({True: 1})
+	>>> jsonlib2.write ({True: 1})
 	Traceback (most recent call last):
 	WriteError: Only strings may be used as object keys.
-	>>> jsonlib.write ({True: 1}, coerce_keys = True)
+	>>> jsonlib2.write ({True: 1}, coerce_keys = True)
 	'{"true":1}'
 
 Serializing Other Types
@@ -130,14 +130,14 @@ String-like objects that do not inherit from ``str``, ``unicode``, or
 not be changed. If iterating them returns an instance of the same type, the
 serializer might crash. This (hopefully) will be changed.
 
-To serialize a type not known to jsonlib, use the ``on_unknown`` parameter
+To serialize a type not known to jsonlib2, use the ``on_unknown`` parameter
 to ``write``::
 
 	>>> from datetime import date
 	>>> def unknown_handler (value):
 	...     if isinstance (value, date): return str (value)
-	...     raise jsonlib.UnknownSerializerError
-	>>> jsonlib.write ([date (2000, 1, 1)], on_unknown = unknown_handler)
+	...     raise jsonlib2.UnknownSerializerError
+	>>> jsonlib2.write ([date (2000, 1, 1)], on_unknown = unknown_handler)
 	'["2000-01-01"]'
 
 Streaming Serializer
@@ -148,7 +148,7 @@ too much memory to be used. For these situations, use the ``dump`` function
 to write objects to a file-like object::
 
 	>>> import sys
-	>>> jsonlib.dump (["Written to stdout"], sys.stdout)
+	>>> jsonlib2.dump (["Written to stdout"], sys.stdout)
 	["Written to stdout"]
 	>>> 
 
@@ -231,7 +231,7 @@ Change Log
 * Support the ``on_unknown`` parameter to ``write``.
 * Corrected typo in invalid whitespace detection.
 * Added ``__version__`` attribute.
-* Merged all code into ``jsonlib`` and ``_jsonlib`` modules, instead of
+* Merged all code into ``jsonlib2`` and ``_jsonlib`` modules, instead of
   a package.
 
 1.3.2
@@ -319,7 +319,7 @@ Also includes some other miscellaneous fixes:
 -----
 * Fixed bug that prevented characters from being read after reading a
   Unicode escape sequence.
-* Moved test cases into ``jsonlib.tests`` subpackage.
+* Moved test cases into ``jsonlib2.tests`` subpackage.
 
 1.2.3
 -----
