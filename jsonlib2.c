@@ -2656,7 +2656,7 @@ PyDoc_STRVAR (module_doc,
 );
 
 PyMODINIT_FUNC
-initjsonlib (void)
+initjsonlib2 (void)
 {
 	PyObject *module;
 	PyObject *version, *read, *write;
