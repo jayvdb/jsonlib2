@@ -4,11 +4,23 @@
 Overview
 ========
 
-`JSON <http://json.org/>`_ is a lightweight data-interchange format. It
-is often used for exchanging data between a web server and user agent.
+This is yet another library for reading/writing json. The goal is to
+be API compatible with `simplejson
+<http://pypi.python.org/pypi/simplejson>`, except that it is written
+purely in C and is thus 5x-20x faster for both encoding and decoding,
+depending on the data.
 
-This module aims to produce a library for serializing and deserializing
-JSON that conforms strictly to RFC 4627.
+This is a fork of the `jsonlib <https://launchpad.net/jsonlib>`
+project by the folks over at `Freebase <https://www.freebase.com>` who
+have data coming from a variety of internal sources in different
+encodings and formats, not all of which could simply be represented by
+strict JSON.
+
+Thus, the intent of this fork is to be more lenient in its
+encoding and decoding (as simplejson is) allowing things like
+NaN/-NaN/Infinity, automatic handling of unicode, and more. The first
+release of jsonlib2 was version 1.4, which was forked from jsonlib
+1.3.10.
 
 .. contents::
 
@@ -178,6 +190,15 @@ serialized. See the ``on_unknown`` parameter to ``write``.
 
 Change Log
 ==========
+
+1.4.1
+-----
+* Added ``escape_slash`` parameter to ``write()`` to stop escaping the
+  '/' character
+
+1.4
+---
+* First release as jsonlib2
 
 1.3.10
 ------

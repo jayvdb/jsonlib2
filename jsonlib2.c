@@ -106,6 +106,7 @@ struct _Encoder
 	PyObject *indent_string;
 	int ascii_only;
 	int coerce_keys;
+    int escape_slash;           /* escape the '/' character? */
 	PyObject *on_unknown;
     int allow_non_numbers;
 	
@@ -194,10 +195,10 @@ static PyObject *
 write_unicode (Encoder *encoder, PyObject *unicode);
 
 static PyObject *
-unicode_to_unicode (PyObject *unicode);
+unicode_to_unicode (PyObject *unicode, int escape_slash);
 
 static PyObject *
-unicode_to_ascii (PyObject *unicode);
+unicode_to_ascii (PyObject *unicode, int escape_slash);
 /* }}} */
 
 /* util function definitions {{{ */
@@ -1461,6 +1462,7 @@ write_string (Encoder *encoder, PyObject *string)
 	PyObject *exc_type, *exc_value, *exc_traceback;
 	PyObject *unicode, *retval;
 	int safe = TRUE;
+    int escape_slash = encoder->escape_slash;
 	char *buffer;
 	size_t ii;
 	Py_ssize_t str_len;
@@ -1479,7 +1481,7 @@ write_string (Encoder *encoder, PyObject *string)
 	for (ii = 0; ii < (size_t)str_len; ++ii)
 	{
 		if (buffer[ii] == '"' ||
-		    buffer[ii] == '/' ||
+		    (escape_slash && buffer[ii] == '/') ||
 		    buffer[ii] == '\\' ||
 		    buffer[ii] < 0x20 ||
 		    buffer[ii] > 0x7E)
@@ -1512,15 +1514,15 @@ write_string (Encoder *encoder, PyObject *string)
 	Py_DECREF (string);
     
 	if (encoder->ascii_only)
-		retval = unicode_to_ascii (unicode);
+		retval = unicode_to_ascii (unicode, escape_slash);
 	else
-		retval = unicode_to_unicode (unicode);
+		retval = unicode_to_unicode (unicode, escape_slash);
 	Py_DECREF (unicode);
 	return retval;
 }
 
 static PyObject *
-unicode_to_unicode (PyObject *unicode)
+unicode_to_unicode (PyObject *unicode, int escape_slash)
 {
 	PyObject *retval;
 	Py_UNICODE *old_buffer, *p, c;
@@ -1556,7 +1558,7 @@ unicode_to_unicode (PyObject *unicode)
 		    c == 0x0C ||
 		    c == 0x0D ||
 		    c == 0x22 ||
-		    c == 0x2F ||
+		    (escape_slash && c == 0x2F) ||
 		    c == 0x5C)
 			new_buffer_size += 2;
 		else if (c <= 0x1F)
@@ -1586,7 +1588,7 @@ unicode_to_unicode (PyObject *unicode)
 			*p++ = '\\', *p++ = 'r';
 		else if (c == 0x22)
 			*p++ = '\\', *p++ = '"';
-		else if (c == 0x2F)
+		else if (escape_slash && c == 0x2F)
 			*p++ = '\\', *p++ = '/';
 		else if (c == 0x5C)
 			*p++ = '\\', *p++ = '\\';
@@ -1618,7 +1620,7 @@ escape_unichar (Py_UNICODE c, char *p)
 		case 0x0C: *p++ = 'f'; return p;
 		case 0x0D: *p++ = 'r'; return p;
 		case 0x22: *p++ = '"'; return p;
-		case 0x2F: *p++ = '/'; return p;
+        case 0x2F: *p++ = '/'; return p;
 		case 0x5C: *p++ = '\\'; return p;
 		default: break;
 	}
@@ -1659,7 +1661,7 @@ escape_unichar (Py_UNICODE c, char *p)
 }
 
 static PyObject *
-unicode_to_ascii (PyObject *unicode)
+unicode_to_ascii (PyObject *unicode, int escape_slash)
 {
 	PyObject *retval;
 	Py_UNICODE *old_buffer;
@@ -1698,7 +1700,7 @@ unicode_to_ascii (PyObject *unicode)
 		    c == 0x0C ||
 		    c == 0x0D ||
 		    c == 0x22 ||
-		    c == 0x2F ||
+		    (escape_slash && c == 0x2F) ||
 		    c == 0x5C)
 			new_buffer_size += 2;
 		else if (c <= 0x1F)
@@ -1724,7 +1726,10 @@ unicode_to_ascii (PyObject *unicode)
 	for (ii = 0; ii < old_buffer_size; ii++)
 	{
 		Py_UNICODE c = old_buffer[ii];
-		if (c > 0x1F && c <= 0x7E && c != '\\' && c != '"' && c != '/')
+		if (c > 0x1F && c <= 0x7E &&
+            c != '\\' &&
+            c != '"' &&
+            (!escape_slash || c != '/'))
 			*p++ = (char) (c);
 		else
 			p = escape_unichar (c, p);
@@ -1739,6 +1744,7 @@ write_unicode (Encoder *encoder, PyObject *unicode)
 	PyObject *retval;
 	int safe = TRUE;
 	Py_UNICODE *buffer;
+    int escape_slash = encoder->escape_slash;
 	size_t ii, str_len;
 	
 	/* Check if the string can be returned directly */
@@ -1748,7 +1754,7 @@ write_unicode (Encoder *encoder, PyObject *unicode)
 	for (ii = 0; ii < str_len; ++ii)
 	{
 		if (buffer[ii] == '"' ||
-		    buffer[ii] == '/' ||
+		    (escape_slash && buffer[ii] == '/') ||
 		    buffer[ii] == '\\' ||
 		    buffer[ii] < 0x20 ||
 		    (encoder->ascii_only && buffer[ii] > 0x7E))
@@ -1808,8 +1814,8 @@ write_unicode (Encoder *encoder, PyObject *unicode)
 	}
 	
 	if (encoder->ascii_only)
-		return unicode_to_ascii (unicode);
-	return unicode_to_unicode (unicode);
+		return unicode_to_ascii (unicode, escape_slash);
+	return unicode_to_unicode (unicode, escape_slash);
 }
 
 static int
@@ -2463,7 +2469,8 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	
 	static char *kwlist[] = {"value", "sort_keys", "indent",
 	                         "ascii_only", "coerce_keys", "encoding",
-	                         "on_unknown", "allow_non_numbers", NULL};
+	                         "on_unknown", "allow_non_numbers", "escape_slash",
+                             NULL};
 	
 	/* Defaults */
 	encoder_base->sort_keys = FALSE;
@@ -2472,9 +2479,12 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	encoder_base->coerce_keys = FALSE;
 	encoder_base->on_unknown = Py_None;
     encoder_base->allow_non_numbers = FALSE;
+
+    /* different from jsonlib: don't escape by default */
+    encoder_base->escape_slash = TRUE;
 	encoding = "utf-8";
 	
-	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "O|iOiizOi:write",
+	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "O|iOiizOii:write",
 	                                  kwlist,
 	                                  &value,
 	                                  &encoder_base->sort_keys,
@@ -2483,7 +2493,8 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	                                  &encoder_base->coerce_keys,
 	                                  &encoding,
 	                                  &encoder_base->on_unknown,
-                                      &encoder_base->allow_non_numbers))
+                                      &encoder_base->allow_non_numbers,
+                                      &encoder_base->escape_slash))
 		return NULL;
 	
 	encoder_base->append_ascii = buffer_encoder_append_ascii;
@@ -2536,9 +2547,10 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	encoder_base->coerce_keys = FALSE;
 	encoder_base->on_unknown = Py_None;
     encoder_base->allow_non_numbers = FALSE;
+    encoder_base->escape_slash = TRUE;
 	encoder.encoding = "utf-8";
 	
-	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "OO|iOiizOi:dump",
+	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "OO|iOiizOii:dump",
 	                                  kwlist,
 	                                  &value,
 	                                  &encoder.stream,
@@ -2548,7 +2560,8 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	                                  &encoder_base->coerce_keys,
 	                                  &encoder.encoding,
 	                                  &encoder_base->on_unknown,
-                                      &encoder_base->allow_non_numbers))
+                                      &encoder_base->allow_non_numbers,
+                                      &encoder_base->escape_slash))
 		return NULL;
 	
 	encoder_base->append_ascii = stream_encoder_append_ascii;
@@ -2604,27 +2617,27 @@ static PyMethodDef module_methods[] = {
 	"	\n"
 	"	Default: False\n"
 	"\n"
-	"indent\n"
+	"indent=None\n"
 	"	A string to be used for indenting arrays and objects.\n"
 	"	If this is non-None, pretty-printing mode is activated.\n"
 	"	\n"
 	"	Default: None\n"
 	"\n"
-	"ascii_only\n"
+	"ascii_only=True\n"
 	"	Whether the output should consist of only ASCII\n"
 	"	characters. If this is True, any non-ASCII code points\n"
 	"	are escaped even if their inclusion would be legal.\n"
 	"	\n"
 	"	Default: True\n"
 	"\n"
-	"coerce_keys\n"
+	"coerce_keys=False\n"
 	"	Whether to coerce invalid object keys to strings. If\n"
 	"	this is False, an exception will be raised when an\n"
 	"	invalid key is specified.\n"
 	"	\n"
 	"	Default: False\n"
 	"\n"
-	"encoding\n"
+	"encoding='utf-8'\n"
 	"	The output encoding to use. This must be the name of an\n"
 	"	encoding supported by Python's codec mechanism. If\n"
 	"	None, a Unicode string will be returned rather than an\n"
@@ -2636,18 +2649,21 @@ static PyMethodDef module_methods[] = {
 	"	\n"
 	"	The default encoding is UTF-8.\n"
 	"\n"
-	"on_unknown\n"
+	"on_unknown=None\n"
 	"	An object that will be called to convert unknown values\n"
 	"	into a JSON-representable value. The default simply raises\n"
 	"	an UnknownSerializerError.\n"
     "\n"
-    "allow_non_numbers\n"
+    "allow_non_numbers=False\n"
     "	Allow serialization of the python values inf (infinity), -inf\n"
     "	(negative infinity) and nan (not a number) as Infinity, -Infinity,\n"
     "	and NaN, respectively. Otherwise, will throw an exception\n"
 	"\n"
-	)},
-	
+    "escape_slash=True\n"
+    "   Escape the '/' character in strings as '\\/'. This closes a\n"
+    "   security hole when json is embedded directly into HTML.\n"
+    "\n"
+    )},
 	{NULL, NULL}
 };
 
