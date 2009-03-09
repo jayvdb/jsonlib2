@@ -6,12 +6,12 @@ Overview
 
 This is yet another library for reading/writing json. The goal is to
 be API compatible with `simplejson
-<http://pypi.python.org/pypi/simplejson>`, except that it is written
+<http://pypi.python.org/pypi/simplejson>`_, except that it is written
 purely in C and is thus 5x-20x faster for both encoding and decoding,
 depending on the data.
 
-This is a fork of the `jsonlib <https://launchpad.net/jsonlib>`
-project by the folks over at `Freebase <https://www.freebase.com>` who
+This is a fork of the `jsonlib <https://launchpad.net/jsonlib>`_
+project by the folks over at `Freebase <https://www.freebase.com>`_ who
 have data coming from a variety of internal sources in different
 encodings and formats, not all of which could simply be represented by
 strict JSON.
