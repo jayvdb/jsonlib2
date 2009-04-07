@@ -1466,7 +1466,6 @@ write_string (Encoder *encoder, PyObject *string)
 	char *buffer;
 	size_t ii;
 	Py_ssize_t str_len;
-    char *mycopy;
 	
 	/* Scan the string for non-ASCII values. If none exist, the string
 	 * can be returned directly (with quotes).
@@ -1474,10 +1473,6 @@ write_string (Encoder *encoder, PyObject *string)
 	if (PyString_AsStringAndSize (string, &buffer, &str_len) == -1)
 		return NULL;
 
-    mycopy = malloc(str_len + 1);
-    strncpy(mycopy, buffer, str_len);
-    mycopy[str_len] = 0;
-    
 	for (ii = 0; ii < (size_t)str_len; ++ii)
 	{
 		if (buffer[ii] == '"' ||
