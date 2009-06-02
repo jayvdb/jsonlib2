@@ -5,7 +5,7 @@ except ImportError:
 	from distutils.core import setup, Extension
 	
 # If you change the version here, also change it in jsonlib2.c and .py.
-version = '1.4.1'
+version = '1.4.2'
 
 setup (
 	name = 'jsonlib2',
@@ -18,6 +18,7 @@ setup (
 	url = "http://code.google.com/p/jsonlib2/",
 	download_url = "http://code.google.com/p/jsonlib2/downloads/list",
 	platforms = ["Platform Independent"],
+    test_suite = "jsonlib2_simplejson.tests",
 	classifiers = [
 		"Development Status :: 5 - Production/Stable",
 		"Intended Audience :: Developers",
