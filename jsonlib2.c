@@ -122,6 +122,7 @@ struct _Encoder
 	PyObject *nan_str;
 	PyObject *quote;
 	PyObject *colon;
+    PyObject *comma;
 };
 
 typedef struct _BufferEncoder
@@ -233,6 +234,27 @@ next_power_2 (size_t start, size_t min)
 	while (start < min) start <<= 1;
 	return start;
 }
+static PyObject*
+normalize_indent_string(PyObject* indent_string)
+{
+    if (PyInt_Check(indent_string)) {
+        long indent_val = PyInt_AsLong(indent_string);
+        if (indent_val == -1 && PyErr_Occurred())
+            return NULL;
+
+        PyObject* space = ascii_constant(" ", 1);
+        PyObject* new_string = PySequence_Repeat(space, indent_val);
+        if (new_string) {
+            Py_DECREF(space);
+            Py_DECREF(indent_string);
+            return new_string;
+        } else {
+            return NULL;
+        }
+    }
+    return indent_string;
+}
+
 /* }}} */
 
 /* parser {{{ */
@@ -1917,7 +1939,7 @@ mapping_process_key (Encoder *encoder, PyObject *key, PyObject **key_ptr)
 		if (*key_ptr) return TRUE;
 		return FALSE;
 	}
-	
+
 	if (encoder->coerce_keys)
 	{
 		PyObject *new_key = NULL;
@@ -1936,9 +1958,9 @@ mapping_process_key (Encoder *encoder, PyObject *key, PyObject **key_ptr)
 		*key_ptr = new_key;
 		return TRUE;
 	}
-	PyErr_SetString (WriteError,
-	                 "Only strings may be used"
-	                 " as object keys.");
+	PyErr_Format(WriteError,
+                    "Only strings may be used as object keys, not %r",
+                    key);
 	return FALSE;
 }
 
@@ -2461,21 +2483,27 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	static char *kwlist[] = {"value", "sort_keys", "indent",
 	                         "ensure_ascii", "coerce_keys", "encoding",
 	                         "on_unknown", "allow_non_numbers", "escape_slash",
+                             "separators",
                              NULL};
 	
 	/* Defaults */
 	encoder_base->sort_keys = FALSE;
 	encoder_base->indent_string = Py_None;
 	encoder_base->ensure_ascii = TRUE;
-	encoder_base->coerce_keys = FALSE;
+	encoder_base->coerce_keys = TRUE;
 	encoder_base->on_unknown = Py_None;
     encoder_base->allow_non_numbers = TRUE;
+/*     encoder_base->comma = ","; */
+/*     encoder_base->colon = ":"; */
 
     /* different from jsonlib: don't escape by default */
     encoder_base->escape_slash = TRUE;
 	encoding = "utf-8";
-	
-	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "O|iOiizOii:write",
+
+    PyObject *separators=Py_None;
+    Py_INCREF(separators);
+    
+	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "O|iOiizOiiO:write",
 	                                  kwlist,
 	                                  &value,
 	                                  &encoder_base->sort_keys,
@@ -2485,9 +2513,15 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	                                  &encoding,
 	                                  &encoder_base->on_unknown,
                                       &encoder_base->allow_non_numbers,
-                                      &encoder_base->escape_slash))
+                                      &encoder_base->escape_slash,
+                                      &separators))
 		return NULL;
-	
+
+    Py_XDECREF(separators);
+
+
+    encoder_base->indent_string = normalize_indent_string(encoder_base->indent_string);
+    
 	encoder_base->append_ascii = buffer_encoder_append_ascii;
 	encoder_base->append_unicode = buffer_encoder_append_unicode;
 	if (serializer_init_and_run_common (encoder_base, value))
@@ -2529,19 +2563,24 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	
 	static char *kwlist[] = {"value", "fp", "sort_keys", "indent",
 	                         "ensure_ascii", "coerce_keys", "encoding",
-	                         "on_unknown", "allow_non_numbers", NULL};
+	                         "on_unknown", "allow_non_numbers",
+                             "separators", NULL};
 	
 	/* Defaults */
 	encoder_base->sort_keys = FALSE;
 	encoder_base->indent_string = Py_None;
 	encoder_base->ensure_ascii = TRUE;
-	encoder_base->coerce_keys = FALSE;
+	encoder_base->coerce_keys = TRUE;
 	encoder_base->on_unknown = Py_None;
     encoder_base->allow_non_numbers = TRUE;
     encoder_base->escape_slash = TRUE;
+/*     encoder_base->comma = ","; */
+/*     encoder_base->colon = ":"; */
 	encoder.encoding = "utf-8";
-	
-	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "OO|iOiizOii:dump",
+
+    PyObject *separators = Py_None;
+    Py_INCREF(separators);
+	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "OO|iOiizOiiO:dump",
 	                                  kwlist,
 	                                  &value,
 	                                  &encoder.stream,
@@ -2552,9 +2591,14 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	                                  &encoder.encoding,
 	                                  &encoder_base->on_unknown,
                                       &encoder_base->allow_non_numbers,
-                                      &encoder_base->escape_slash))
+                                      &encoder_base->escape_slash,
+                                      &separators))
 		return NULL;
-	
+
+    Py_XDECREF(separators);
+
+    encoder_base->indent_string = normalize_indent_string(encoder_base->indent_string);
+    
 	encoder_base->append_ascii = stream_encoder_append_ascii;
 	encoder_base->append_unicode = stream_encoder_append_unicode;
 	if (serializer_init_and_run_common (encoder_base, value))
@@ -2564,6 +2608,7 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	}
 	return NULL;
 }
+
 /* }}} */
 
 /* python hooks {{{ */
@@ -2621,7 +2666,7 @@ static PyMethodDef module_methods[] = {
 	"	\n"
 	"	Default: True\n"
 	"\n"
-	"coerce_keys=False\n"
+	"coerce_keys=True\n"
 	"	Whether to coerce invalid object keys to strings. If\n"
 	"	this is False, an exception will be raised when an\n"
 	"	invalid key is specified.\n"
