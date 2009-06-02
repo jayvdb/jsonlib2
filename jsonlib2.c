@@ -104,7 +104,7 @@ struct _Encoder
 	/* Options passed to _write */
 	int sort_keys;
 	PyObject *indent_string;
-	int ascii_only;
+	int ensure_ascii;
 	int coerce_keys;
     int escape_slash;           /* escape the '/' character? */
 	PyObject *on_unknown;
@@ -404,23 +404,33 @@ set_error_unexpected (Decoder *decoder, Py_UNICODE *position,
 	{
 		if (c > 0xFFFF)
 			err_str = PyString_FromString ("Unexpected U+%08X while looking for %s.");
-		else
+		else if (c >= 0x008F)
 			err_str = PyString_FromString ("Unexpected U+%04X while looking for %s.");
+        else
+			err_str = PyString_FromString ("Unexpected U+%04X (%c) while looking for %s.");
 	}
 	else
 	{
 		if (c > 0xFFFF)
 			err_str = PyString_FromString ("Unexpected U+%08X.");
-		else
-			err_str = PyString_FromString ("Unexpected U+%04X.");
+		else if (c >= 0x008F)
+            err_str = PyString_FromString("Unexpected U+%04X.");
+        else
+			err_str = PyString_FromString ("Unexpected U+%04X (%c).");
 	}
 	
 	if (err_str)
 	{
 		if (wanted)
-			err_format_args = Py_BuildValue ("(ks)", c, wanted);
-		else
-			err_format_args = Py_BuildValue ("(k)", c);
+            if (c >= 0x008F)
+                err_format_args = Py_BuildValue ("(ks)", c, wanted);
+            else
+                err_format_args = Py_BuildValue ("(kcs)", c, c, wanted);
+		else if (c >= 0x008F)
+            err_format_args = Py_BuildValue ("(k)", c);
+        else
+			err_format_args = Py_BuildValue ("(kc)", c, c);
+        
 		if (err_format_args)
 		{
 			set_error (decoder, position, err_str, err_format_args);
@@ -705,7 +715,7 @@ read_string (Decoder *decoder)
 		/* Check for illegal characters */
 		if (c < 0x20)
 		{
-			set_error_unexpected (decoder, start + ii, NULL);
+			set_error_unexpected (decoder, start + ii, "printable characters");
 			return NULL;
 		}
 		
@@ -885,7 +895,7 @@ read_array_impl (PyObject *list, Decoder *decoder)
 					break;
 				}
 				
-				set_error_unexpected (decoder, decoder->index, NULL);
+				set_error_unexpected (decoder, decoder->index, "object in array");
 				return FALSE;
 				
 			case ARRAY_GOT_VALUE:
@@ -996,7 +1006,7 @@ read_object_impl (PyObject *object, Decoder *decoder)
 					break;
 				}
 				
-				set_error_unexpected (decoder, decoder->index, NULL);
+				set_error_unexpected (decoder, decoder->index, "object in dictionary");
 				return FALSE;
 			}
 			case OBJECT_GOT_VALUE:
@@ -1081,7 +1091,7 @@ json_read (Decoder *decoder)
 		default:
 			break;
 	}
-	set_error_unexpected (decoder, decoder->index, NULL);
+	set_error_unexpected (decoder, decoder->index, "<valid thing>");
 	return NULL;
 }
 
@@ -1211,7 +1221,7 @@ _read_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 {
 	PyObject *result = NULL, *unicode;
 	Decoder decoder = {NULL};
-	unsigned int use_float = FALSE;
+	unsigned int use_float = TRUE;
 	
 	if (!parse_unicode_arg (args, kwargs, &unicode, &use_float))
 		return NULL;
@@ -1227,12 +1237,6 @@ _read_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	}
 	
 	Py_XDECREF (decoder.Decimal);
-	
-	if (result && !decoder.got_root)
-	{
-		set_error_unexpected (&decoder, decoder.start, NULL);
-		result = NULL;
-	}
 	
 	if (result)
 	{
@@ -1508,7 +1512,7 @@ write_string (Encoder *encoder, PyObject *string)
 	PyErr_Clear ();
 	Py_DECREF (string);
     
-	if (encoder->ascii_only)
+	if (encoder->ensure_ascii)
 		retval = unicode_to_ascii (unicode, escape_slash);
 	else
 		retval = unicode_to_unicode (unicode, escape_slash);
@@ -1752,7 +1756,7 @@ write_unicode (Encoder *encoder, PyObject *unicode)
 		    (escape_slash && buffer[ii] == '/') ||
 		    buffer[ii] == '\\' ||
 		    buffer[ii] < 0x20 ||
-		    (encoder->ascii_only && buffer[ii] > 0x7E))
+		    (encoder->ensure_ascii && buffer[ii] > 0x7E))
 		{
 			safe = FALSE;
 			break;
@@ -1808,7 +1812,7 @@ write_unicode (Encoder *encoder, PyObject *unicode)
 		}
 	}
 	
-	if (encoder->ascii_only)
+	if (encoder->ensure_ascii)
 		return unicode_to_ascii (unicode, escape_slash);
 	return unicode_to_unicode (unicode, escape_slash);
 }
@@ -2318,14 +2322,6 @@ write_object (Encoder *encoder, PyObject *object,
 	if ((pieces = write_basic (encoder, object)))
 	{
 		int retval = FALSE;
-		if (indent_level == 0)
-		{
-			Py_DECREF (pieces);
-			PyErr_SetString (WriteError,
-			                 "The outermost container must be"
-			                 " an array or object.");
-			return retval;
-		}
 		retval = encoder_append_string (encoder, pieces);
 		Py_DECREF (pieces);
 		return retval;
@@ -2463,17 +2459,17 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	char *encoding;
 	
 	static char *kwlist[] = {"value", "sort_keys", "indent",
-	                         "ascii_only", "coerce_keys", "encoding",
+	                         "ensure_ascii", "coerce_keys", "encoding",
 	                         "on_unknown", "allow_non_numbers", "escape_slash",
                              NULL};
 	
 	/* Defaults */
 	encoder_base->sort_keys = FALSE;
 	encoder_base->indent_string = Py_None;
-	encoder_base->ascii_only = TRUE;
+	encoder_base->ensure_ascii = TRUE;
 	encoder_base->coerce_keys = FALSE;
 	encoder_base->on_unknown = Py_None;
-    encoder_base->allow_non_numbers = FALSE;
+    encoder_base->allow_non_numbers = TRUE;
 
     /* different from jsonlib: don't escape by default */
     encoder_base->escape_slash = TRUE;
@@ -2484,7 +2480,7 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	                                  &value,
 	                                  &encoder_base->sort_keys,
 	                                  &encoder_base->indent_string,
-	                                  &encoder_base->ascii_only,
+	                                  &encoder_base->ensure_ascii,
 	                                  &encoder_base->coerce_keys,
 	                                  &encoding,
 	                                  &encoder_base->on_unknown,
@@ -2532,16 +2528,16 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	Encoder *encoder_base = (Encoder *) &encoder;
 	
 	static char *kwlist[] = {"value", "fp", "sort_keys", "indent",
-	                         "ascii_only", "coerce_keys", "encoding",
-	                         "on_unknown", "allow_infinity", NULL};
+	                         "ensure_ascii", "coerce_keys", "encoding",
+	                         "on_unknown", "allow_non_numbers", NULL};
 	
 	/* Defaults */
 	encoder_base->sort_keys = FALSE;
 	encoder_base->indent_string = Py_None;
-	encoder_base->ascii_only = TRUE;
+	encoder_base->ensure_ascii = TRUE;
 	encoder_base->coerce_keys = FALSE;
 	encoder_base->on_unknown = Py_None;
-    encoder_base->allow_non_numbers = FALSE;
+    encoder_base->allow_non_numbers = TRUE;
     encoder_base->escape_slash = TRUE;
 	encoder.encoding = "utf-8";
 	
@@ -2551,7 +2547,7 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	                                  &encoder.stream,
 	                                  &encoder_base->sort_keys,
 	                                  &encoder_base->indent_string,
-	                                  &encoder_base->ascii_only,
+	                                  &encoder_base->ensure_ascii,
 	                                  &encoder_base->coerce_keys,
 	                                  &encoder.encoding,
 	                                  &encoder_base->on_unknown,
@@ -2581,7 +2577,7 @@ static PyMethodDef module_methods[] = {
 	"If ``string`` is a byte string, it will be converted to Unicode\n"
 	"before parsing.\n"
 	"\n"
-	"use_float\n"
+	"use_float=True\n"
 	"	If True, fractional and exponential numbers will be returned\n"
 	"	as instances of ``float``, rather than ``decimal.Decimal``.\n"
 	"	This may result in loss of precision, or unusual values\n"
@@ -2598,7 +2594,7 @@ static PyMethodDef module_methods[] = {
 	
 	{"write", (PyCFunction) (_write_entry), METH_VARARGS|METH_KEYWORDS,
 	PyDoc_STR (
-	"write (value[, sort_keys[, indent[, ascii_only[, coerce_keys[, encoding[, on_unknown]]]]]])\n"
+	"write (value[, sort_keys[, indent[, ensure_ascii[, coerce_keys[, encoding[, on_unknown]]]]]])\n"
 	"\n"
 	"Serialize a Python value to a JSON-formatted byte string.\n"
 	"\n"
@@ -2618,7 +2614,7 @@ static PyMethodDef module_methods[] = {
 	"	\n"
 	"	Default: None\n"
 	"\n"
-	"ascii_only=True\n"
+	"ensure_ascii=True\n"
 	"	Whether the output should consist of only ASCII\n"
 	"	characters. If this is True, any non-ASCII code points\n"
 	"	are escaped even if their inclusion would be legal.\n"
@@ -2649,7 +2645,7 @@ static PyMethodDef module_methods[] = {
 	"	into a JSON-representable value. The default simply raises\n"
 	"	an UnknownSerializerError.\n"
     "\n"
-    "allow_non_numbers=False\n"
+    "allow_non_numbers=True\n"
     "	Allow serialization of the python values inf (infinity), -inf\n"
     "	(negative infinity) and nan (not a number) as Infinity, -Infinity,\n"
     "	and NaN, respectively. Otherwise, will throw an exception\n"
