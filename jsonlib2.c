@@ -1450,6 +1450,7 @@ unicode_from_format (const char *format, ...)
 
 static void
 get_separators (PyObject *indent_string, int indent_level,
+                PyObject *comma,
                 char start, char end,
                 PyObject **start_ptr, PyObject **end_ptr,
                 PyObject **pre_value_ptr, PyObject **post_value_ptr)
@@ -1458,7 +1459,8 @@ get_separators (PyObject *indent_string, int indent_level,
 	{
 		(*start_ptr) = ascii_constant (&start, 1);
 		(*pre_value_ptr) = NULL;
-		(*post_value_ptr) = ascii_constant (",", 1);
+		(*post_value_ptr) = comma;
+        Py_INCREF(*post_value_ptr);
 		(*end_ptr) = ascii_constant (&end, 1);
 	}
 	else
@@ -1902,7 +1904,8 @@ write_iterable (Encoder *encoder, PyObject *iter, int indent_level)
 	}
 	
 	/* Build separator strings */
-	get_separators (encoder->indent_string, indent_level, '[', ']',
+	get_separators (encoder->indent_string, indent_level,
+                    encoder->comma, '[', ']',
 	                &start, &end, &pre, &post);
 	
 	succeeded = write_sequence_impl (encoder, sequence,
@@ -2132,7 +2135,8 @@ write_mapping (Encoder *encoder, PyObject *mapping, int indent_level)
 		return FALSE;
 	}
 	
-	get_separators (encoder->indent_string, indent_level, '{', '}',
+	get_separators (encoder->indent_string, indent_level,
+                    encoder->comma, '{', '}',
 	                &start, &end, &pre_value, &post_value);
 	
 	Py_INCREF (mapping);
@@ -2438,12 +2442,22 @@ serializer_init_and_run_common (Encoder *encoder, PyObject *value)
 			                 "Only whitespace may be used for indentation.");
 		return FALSE;
 	}
+
+    if (!encoder->colon) {
+        if (encoder->indent_string == Py_None)
+            encoder->colon = ascii_constant (": ", -1);
+        else
+            encoder->colon = ascii_constant (": ", -1);
+        if (!encoder->colon) return FALSE;
+    }
 	
-	if (encoder->indent_string == Py_None)
-		encoder->colon = ascii_constant (":", -1);
-	else
-		encoder->colon = ascii_constant (": ", -1);
-	if (!encoder->colon) return FALSE;
+    if (!encoder->comma) {
+        if (encoder->indent_string == Py_None)
+            encoder->comma = ascii_constant (", ", -1);
+        else
+            encoder->comma = ascii_constant (", ", -1);
+        if (!encoder->comma) return FALSE;
+    }
 	
 	if ((encoder->Decimal = jsonlib_import ("decimal", "Decimal")) &&
 	    (encoder->UserString = jsonlib_import ("UserString", "UserString")) &&
@@ -2468,6 +2482,7 @@ serializer_init_and_run_common (Encoder *encoder, PyObject *value)
 	Py_XDECREF (encoder->nan_str);
 	Py_XDECREF (encoder->quote);
 	Py_XDECREF (encoder->colon);
+	Py_XDECREF (encoder->comma);
 	
 	return succeeded;
 }
@@ -2493,15 +2508,14 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	encoder_base->coerce_keys = TRUE;
 	encoder_base->on_unknown = Py_None;
     encoder_base->allow_non_numbers = TRUE;
-/*     encoder_base->comma = ","; */
-/*     encoder_base->colon = ":"; */
+    encoder_base->colon = NULL;
+    encoder_base->comma = NULL;
 
     /* different from jsonlib: don't escape by default */
     encoder_base->escape_slash = TRUE;
 	encoding = "utf-8";
 
-    PyObject *separators=Py_None;
-    Py_INCREF(separators);
+    PyObject *separators=NULL;
     
 	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "O|iOiizOiiO:write",
 	                                  kwlist,
@@ -2514,11 +2528,18 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	                                  &encoder_base->on_unknown,
                                       &encoder_base->allow_non_numbers,
                                       &encoder_base->escape_slash,
-                                      &separators))
-		return NULL;
+                                      &separators)) {
+            return NULL;
+    }
 
-    Py_XDECREF(separators);
-
+    if (separators) {
+        int result = PyArg_ParseTuple(separators, "OO:one",
+                                      &encoder_base->comma,
+                                      &encoder_base->colon);
+        if (!result) {
+            return NULL;
+        }
+    }
 
     encoder_base->indent_string = normalize_indent_string(encoder_base->indent_string);
     
@@ -2574,12 +2595,12 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	encoder_base->on_unknown = Py_None;
     encoder_base->allow_non_numbers = TRUE;
     encoder_base->escape_slash = TRUE;
-/*     encoder_base->comma = ","; */
-/*     encoder_base->colon = ":"; */
 	encoder.encoding = "utf-8";
+    encoder_base->colon = NULL;
+    encoder_base->comma = NULL;
 
-    PyObject *separators = Py_None;
-    Py_INCREF(separators);
+
+    PyObject *separators=NULL;
 	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "OO|iOiizOiiO:dump",
 	                                  kwlist,
 	                                  &value,
@@ -2595,7 +2616,15 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
                                       &separators))
 		return NULL;
 
-    Py_XDECREF(separators);
+    if (separators) {
+        int result = PyArg_ParseTuple(separators, "OO:two",
+                                      &encoder_base->comma,
+                                      &encoder_base->colon);
+
+        if (!result) {
+            return NULL;
+        }
+    }
 
     encoder_base->indent_string = normalize_indent_string(encoder_base->indent_string);
     
