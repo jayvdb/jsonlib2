@@ -110,25 +110,26 @@ encoding. ::
 	u'["Hello world!"]'
 
 By default, non-ASCII codepoints are forbidden in the output. To include
-higher codepoints in the output, set ``ascii_only`` to ``False``. ::
+higher codepoints in the output, set ``ensure_ascii`` to ``False``. ::
 
 	>>> jsonlib2.write ([u'Hello \u266a'], encoding = None)
 	u'["Hello \\u266a"]'
-	>>> jsonlib2.write ([u'Hello \u266a'], encoding = None, ascii_only = False)
+	>>> jsonlib2.write ([u'Hello \u266a'], encoding = None, ensure_ascii = False)
 	u'["Hello \u266a"]'
 
 Mapping Key Coercion
 ~~~~~~~~~~~~~~~~~~~~
 
-Because JSON objects must have string keys, an exception will be raised when
-non-string keys are encountered in a mapping. It can be useful to coerce
-mapping keys to strings, so the ``coerce_keys`` parameter is available. ::
+Because JSON objects must have string keys, strings will be 'coerced'
+to strings. You can override this with the ``coerce_keys`` parameter,
+whcih will raise exception when non-string keys are encountered in a
+mapping. ::
 
 	>>> jsonlib2.write ({True: 1})
+	'{"true":1}'
+	>>> jsonlib2.write ({True: 1}, coerce_keys = False)
 	Traceback (most recent call last):
 	WriteError: Only strings may be used as object keys.
-	>>> jsonlib2.write ({True: 1}, coerce_keys = True)
-	'{"true":1}'
 
 Serializing Other Types
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -142,14 +143,14 @@ String-like objects that do not inherit from ``str``, ``unicode``, or
 not be changed. If iterating them returns an instance of the same type, the
 serializer might crash. This (hopefully) will be changed.
 
-To serialize a type not known to jsonlib2, use the ``on_unknown`` parameter
+To serialize a type not known to jsonlib2, use the ``default`` parameter
 to ``write``::
 
 	>>> from datetime import date
-	>>> def unknown_handler (value):
+	>>> def default_handler (value):
 	...     if isinstance (value, date): return str (value)
 	...     raise jsonlib2.UnknownSerializerError
-	>>> jsonlib2.write ([date (2000, 1, 1)], on_unknown = unknown_handler)
+	>>> jsonlib2.write ([date (2000, 1, 1)], default = default_handler)
 	'["2000-01-01"]'
 
 Streaming Serializer
@@ -186,10 +187,32 @@ UnknownSerializerError
 ~~~~~~~~~~~~~~~~~~~~~~
 
 A subclass of ``WriteError`` that is raised when a value cannot be
-serialized. See the ``on_unknown`` parameter to ``write``.
+serialized. See the ``default`` parameter to ``write``.
 
 Change Log
 ==========
+
+1.5
+---
+* Major API change - add lots of support for simplejson keywords
+* dropped use of Decimal module, and thus the ``use_float`` parameter
+  in ``load``. In ``dump``, use ``default``.
+* in ``load``, added parsing support for Infinity, -Infinity, NaN
+* in ``load``, added support for ``parse_float``, ``parse_int``,
+  ``parse_constant``
+* in ``dump``, ``allow_non_numbers`` became ``allow_nan``
+* in ``dump``, ``allow_nan`` (formerly ``allow_non_numbers``) is now
+  True by default
+* in ``dump``, ``on_unknown`` became ``default``
+* in ``dump``, ``ascii_only`` became ``ensure_ascii``
+* in ``dump``, ``coerce_keys`` is now True by default
+* Removed JSON-strict restriction, allowing both ``load`` and ``dump``
+  to deal with objects that are not lists or dictionaries at the root
+  level.
+
+1.4.2
+-----
+* Memory leak fix
 
 1.4.1
 -----

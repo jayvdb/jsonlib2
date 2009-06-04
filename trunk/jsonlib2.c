@@ -61,8 +61,6 @@ typedef struct _Decoder {
 	Py_UNICODE *stringparse_buffer;
 	size_t stringparse_buffer_size;
 	
-	unsigned int got_root: 1;
-
     PyObject* infinity;
     PyObject* neg_infinity;
     PyObject* nan;
@@ -1118,10 +1116,8 @@ json_read (Decoder *decoder)
 			                  "No expression found.");
 			return NULL;
 		case '{':
-			decoder->got_root = TRUE;
 			return read_object (decoder);
 		case '[':
-			decoder->got_root = TRUE;
 			return read_array (decoder);
 		case '"':
 			return read_string (decoder);
