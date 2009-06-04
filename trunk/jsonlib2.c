@@ -107,7 +107,7 @@ struct _Encoder
 	int ensure_ascii;
 	int coerce_keys;
     int escape_slash;           /* escape the '/' character? */
-	PyObject *on_unknown;
+	PyObject *default_handler;
     int allow_non_numbers;
 	
 	int (*append_ascii) (Encoder *, const char *, const size_t);
@@ -1470,6 +1470,7 @@ get_separators (PyObject *indent_string, int indent_level,
 		start_str[0] = start;
 		
 		(*start_ptr) = ascii_constant (start_str, 2);
+        /* XXX: need to handle 'comma' string here with %s\n */
 		(*post_value_ptr) = ascii_constant (",\n", 2);
 		
 		indent = PySequence_Repeat (indent_string, indent_level + 1);
@@ -2323,7 +2324,7 @@ write_basic (Encoder *encoder, PyObject *value)
 		Py_DECREF (as_string);
 		return retval;
 	}
-	
+
 	set_unknown_serializer (value);
 	return NULL;
 }
@@ -2332,7 +2333,7 @@ static int
 write_object (Encoder *encoder, PyObject *object,
               int indent_level, int in_unknown_hook)
 {
-	PyObject *pieces, *iter, *on_unknown_args;
+	PyObject *pieces, *iter, *default_args;
 	PyObject *exc_type, *exc_value, *exc_traceback;
 	
 	if (PyList_Check (object) || PyTuple_Check (object))
@@ -2381,18 +2382,18 @@ write_object (Encoder *encoder, PyObject *object,
 	}
 	
 	PyErr_Clear ();
-	if (encoder->on_unknown == Py_None || in_unknown_hook)
+	if (encoder->default_handler == Py_None || in_unknown_hook)
 	{
 		set_unknown_serializer (object);
 		return FALSE;
 	}
 	
-	/* Call the on_unknown hook */
-	if (!(on_unknown_args = PyTuple_Pack (1, object)))
+	/* Call the `default` hook */
+	if (!(default_args = PyTuple_Pack (1, object)))
 		return FALSE;
 	
-	object = PyObject_CallObject (encoder->on_unknown, on_unknown_args);
-	Py_DECREF (on_unknown_args);
+	object = PyObject_CallObject (encoder->default_handler, default_args);
+	Py_DECREF (default_args);
 	if (object)
 		return write_object (encoder, object, indent_level, TRUE);
 	
@@ -2426,11 +2427,11 @@ serializer_init_and_run_common (Encoder *encoder, PyObject *value)
 {
 	int indent_is_valid, succeeded = FALSE;
 	
-	if (!(encoder->on_unknown == Py_None ||
-	      PyCallable_Check (encoder->on_unknown)))
+	if (!(encoder->default_handler == Py_None ||
+	      PyCallable_Check (encoder->default_handler)))
 	{
 		PyErr_SetString (PyExc_TypeError,
-		                 "The on_unknown object must be callable.");
+		                 "The 'default' object must be callable.");
 		return FALSE;
 	}
 	
@@ -2487,6 +2488,19 @@ serializer_init_and_run_common (Encoder *encoder, PyObject *value)
 	return succeeded;
 }
 
+static void init_encoder(Encoder *encoder)
+{
+	encoder->sort_keys = FALSE;
+	encoder->indent_string = Py_None;
+	encoder->ensure_ascii = TRUE;
+	encoder->coerce_keys = TRUE;
+	encoder->default_handler = Py_None;
+    encoder->allow_non_numbers = TRUE;
+    encoder->colon = NULL;
+    encoder->comma = NULL;
+    encoder->escape_slash = TRUE;
+}
+
 static PyObject*
 _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 {
@@ -2497,22 +2511,13 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	
 	static char *kwlist[] = {"value", "sort_keys", "indent",
 	                         "ensure_ascii", "coerce_keys", "encoding",
-	                         "on_unknown", "allow_non_numbers", "escape_slash",
+	                         "default", "allow_non_numbers", "escape_slash",
                              "separators",
                              NULL};
 	
 	/* Defaults */
-	encoder_base->sort_keys = FALSE;
-	encoder_base->indent_string = Py_None;
-	encoder_base->ensure_ascii = TRUE;
-	encoder_base->coerce_keys = TRUE;
-	encoder_base->on_unknown = Py_None;
-    encoder_base->allow_non_numbers = TRUE;
-    encoder_base->colon = NULL;
-    encoder_base->comma = NULL;
+    init_encoder(encoder_base);
 
-    /* different from jsonlib: don't escape by default */
-    encoder_base->escape_slash = TRUE;
 	encoding = "utf-8";
 
     PyObject *separators=NULL;
@@ -2525,7 +2530,7 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	                                  &encoder_base->ensure_ascii,
 	                                  &encoder_base->coerce_keys,
 	                                  &encoding,
-	                                  &encoder_base->on_unknown,
+	                                  &encoder_base->default_handler,
                                       &encoder_base->allow_non_numbers,
                                       &encoder_base->escape_slash,
                                       &separators)) {
@@ -2584,21 +2589,13 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	
 	static char *kwlist[] = {"value", "fp", "sort_keys", "indent",
 	                         "ensure_ascii", "coerce_keys", "encoding",
-	                         "on_unknown", "allow_non_numbers",
+	                         "default", "allow_non_numbers",
                              "separators", NULL};
 	
 	/* Defaults */
-	encoder_base->sort_keys = FALSE;
-	encoder_base->indent_string = Py_None;
-	encoder_base->ensure_ascii = TRUE;
-	encoder_base->coerce_keys = TRUE;
-	encoder_base->on_unknown = Py_None;
-    encoder_base->allow_non_numbers = TRUE;
-    encoder_base->escape_slash = TRUE;
+    init_encoder(encoder_base);
+    
 	encoder.encoding = "utf-8";
-    encoder_base->colon = NULL;
-    encoder_base->comma = NULL;
-
 
     PyObject *separators=NULL;
 	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "OO|iOiizOiiO:dump",
@@ -2610,7 +2607,7 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	                                  &encoder_base->ensure_ascii,
 	                                  &encoder_base->coerce_keys,
 	                                  &encoder.encoding,
-	                                  &encoder_base->on_unknown,
+	                                  &encoder_base->default_handler,
                                       &encoder_base->allow_non_numbers,
                                       &encoder_base->escape_slash,
                                       &separators))
@@ -2668,7 +2665,7 @@ static PyMethodDef module_methods[] = {
 	
 	{"write", (PyCFunction) (_write_entry), METH_VARARGS|METH_KEYWORDS,
 	PyDoc_STR (
-	"write (value[, sort_keys[, indent[, ensure_ascii[, coerce_keys[, encoding[, on_unknown]]]]]])\n"
+	"write (value[, sort_keys[, indent[, ensure_ascii[, coerce_keys[, encoding[, default]]]]]])\n"
 	"\n"
 	"Serialize a Python value to a JSON-formatted byte string.\n"
 	"\n"
@@ -2714,7 +2711,7 @@ static PyMethodDef module_methods[] = {
 	"	\n"
 	"	The default encoding is UTF-8.\n"
 	"\n"
-	"on_unknown=None\n"
+	"default=None\n"
 	"	An object that will be called to convert unknown values\n"
 	"	into a JSON-representable value. The default simply raises\n"
 	"	an UnknownSerializerError.\n"
