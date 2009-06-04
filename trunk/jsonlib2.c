@@ -66,6 +66,10 @@ typedef struct _Decoder {
     PyObject* infinity;
     PyObject* neg_infinity;
     PyObject* nan;
+
+    PyObject* parse_float;
+    PyObject* parse_int;
+    PyObject* parse_constant;
 } Decoder;
 
 typedef enum
@@ -834,21 +838,40 @@ read_number (Decoder *decoder)
 	{
 		if (is_float || has_exponent)
 		{
-			PyObject *str, *unicode;
+			PyObject *unicode;
 			if (!(unicode = PyUnicode_FromUnicode (decoder->index,
 			                                       ptr - decoder->index)))
 				return NULL;
-			str = PyUnicode_AsUTF8String (unicode);
+
+            if (decoder->parse_float) {
+                PyObject *args = PyTuple_Pack(1, unicode);
+                object = PyObject_CallObject(decoder->parse_float, args);
+                Py_DECREF(args);
+            } else {
+                object = PyFloat_FromString (unicode, NULL);
+            }
 			Py_DECREF (unicode);
-			if (!str) return NULL;
-            object = PyFloat_FromString (str, NULL);
-			Py_DECREF (str);
 		}
 		
 		else
 		{
-			object = PyLong_FromUnicode (decoder->index,
-			                             ptr - decoder->index, 10);
+            if (decoder->parse_int) {
+                PyObject *unicode;
+                if (!(unicode = PyUnicode_FromUnicode (decoder->index,
+                                                       ptr - decoder->index)))
+                    return NULL;
+                
+                PyObject *args = PyTuple_Pack(1, unicode);
+                Py_DECREF (unicode);
+                
+                object = PyObject_CallObject(decoder->parse_int, args);
+                
+                Py_DECREF(args);
+
+            } else {                                             
+                object = PyLong_FromUnicode (decoder->index,
+                                             ptr - decoder->index, 10);
+            }
 		}
 	}
 	
@@ -1201,16 +1224,12 @@ unicode_autodetect (PyObject *bytestring)
  * a UTF-* encoded bytestring to unicode if needed.
 **/
 static int
-parse_unicode_arg (PyObject *args, PyObject *kwargs, PyObject **unicode)
+parse_unicode_arg (Decoder *decoder,
+                   PyObject *args, PyObject *kwargs, PyObject **unicode)
 {
 	int retval;
 	PyObject *bytestring;
     
-    /* throw these away for now */
-    PyObject *parse_float = NULL,
-        *parse_int = NULL,
-        *parse_constant = NULL;
-	
 	static char *kwlist[] = {"string",
                              "parse_float", "parse_int", "parse_constant",
                              NULL};
@@ -1218,14 +1237,12 @@ parse_unicode_arg (PyObject *args, PyObject *kwargs, PyObject **unicode)
 	/* Try for the common case of a direct unicode string. */
 	retval = PyArg_ParseTupleAndKeywords (args, kwargs, "U|OOO:read",
 	                                      kwlist, unicode,
-                                          &parse_float, &parse_int,
-                                          &parse_constant);
+                                          &decoder->parse_float,
+                                          &decoder->parse_int,
+                                          &decoder->parse_constant);
 	if (retval)
 	{
 		Py_INCREF (*unicode);
-        Py_XDECREF(parse_float);
-        Py_XDECREF(parse_int);
-        Py_XDECREF(parse_constant);
 		return retval;
 	}
 
@@ -1235,22 +1252,17 @@ parse_unicode_arg (PyObject *args, PyObject *kwargs, PyObject **unicode)
 	/* Might have been passed a string. Try to autodecode it. */
 	retval = PyArg_ParseTupleAndKeywords (args, kwargs, "S|OOO:read",
 	                                      kwlist, &bytestring,
-                                          &parse_float, &parse_int,
-                                          &parse_constant);
+                                          &decoder->parse_float,
+                                          &decoder->parse_int,
+                                          &decoder->parse_constant);
 	if (!retval)
 	{
         /* success! */
-        Py_XDECREF(parse_float);
-        Py_XDECREF(parse_int);
-        Py_XDECREF(parse_constant);
 		return retval;
 	}
 	
 	*unicode = unicode_autodetect (bytestring);
 	if (!(*unicode)) return 0;
-    Py_XDECREF(parse_float);
-    Py_XDECREF(parse_int);
-    Py_XDECREF(parse_constant);
 	return 1;
 }
 
@@ -1262,8 +1274,9 @@ _read_entry (PyObject *self, PyObject *args, PyObject *kwargs)
     decoder.infinity = PyFloat_FromDouble(Py_HUGE_VAL);
     decoder.neg_infinity = PyFloat_FromDouble(-Py_HUGE_VAL);
     decoder.nan = PyFloat_FromDouble(Py_NAN);
+    decoder.parse_float = decoder.parse_int = decoder.parse_constant = NULL;
 	
-	if (!parse_unicode_arg (args, kwargs, &unicode))
+	if (!parse_unicode_arg (&decoder, args, kwargs, &unicode))
 		return NULL;
 	
 	decoder.start = PyUnicode_AsUnicode (unicode);
@@ -1291,6 +1304,9 @@ _read_entry (PyObject *self, PyObject *args, PyObject *kwargs)
     Py_XDECREF(decoder.infinity);
     Py_XDECREF(decoder.neg_infinity);
     Py_XDECREF(decoder.nan);
+    Py_XDECREF(decoder.parse_float);
+    Py_XDECREF(decoder.parse_int);
+    Py_XDECREF(decoder.parse_constant);
 	
 	return result;
 }
