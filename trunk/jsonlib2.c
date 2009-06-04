@@ -57,13 +57,15 @@ typedef struct _Decoder {
 	Py_UNICODE *start;
 	Py_UNICODE *end;
 	Py_UNICODE *index;
-	PyObject *Decimal;
 	
 	Py_UNICODE *stringparse_buffer;
 	size_t stringparse_buffer_size;
 	
-	unsigned int use_float: 1;
 	unsigned int got_root: 1;
+
+    PyObject* infinity;
+    PyObject* neg_infinity;
+    PyObject* nan;
 } Decoder;
 
 typedef enum
@@ -98,7 +100,6 @@ struct _Encoder
 	/* Pulled from the current interpreter to avoid errors when used
 	 * with sub-interpreters.
 	**/
-	PyObject *Decimal;
 	PyObject *UserString;
 	
 	/* Options passed to _write */
@@ -107,8 +108,9 @@ struct _Encoder
 	int ensure_ascii;
 	int coerce_keys;
     int escape_slash;           /* escape the '/' character? */
+    int check_circular;
 	PyObject *default_handler;
-    int allow_non_numbers;
+    int allow_nan;
 	
 	int (*append_ascii) (Encoder *, const char *, const size_t);
 	int (*append_unicode) (Encoder *, PyObject *);
@@ -300,15 +302,21 @@ parser_find_next_value (Decoder *decoder)
 		case '[':
 		case '{':
 			return 0;
-		case 't':
+            /* ugh, is there no Py_UNICODE_strncmp ? */
+		case 't':               /* true */
 			if (c[1] == 'r' && c[2] == 'u' && c[3] == 'e')
 				return 0;
-		case 'f':
+		case 'f':               /* false */
 			if (c[1] == 'a' && c[2] == 'l' && c[3] == 's' && c[4] == 'e')
 				return 0;
-		case 'n':
+		case 'n':               /* null */
 			if (c[1] == 'u' && c[2] == 'l' && c[3] == 'l')
 				return 0;
+
+        case 'I':               /* Infinity */
+            if (c[1] == 'n' && c[2] == 'f' && c[3] == 'i' && c[4] == 'n' &&
+                c[5] == 'i' && c[6] == 't' && c[7] == 'y')
+                return 0;
 		default:
 			return 1;
 	}
@@ -460,20 +468,6 @@ set_error_unexpected (Decoder *decoder, Py_UNICODE *position,
 		}
 		Py_DECREF (err_str);
 	}
-}
-
-/* Helper function to create a new decimal.Decimal object */
-static PyObject *
-make_Decimal (Decoder *decoder, PyObject *string)
-{
-	PyObject *args, *retval = NULL;
-	
-	if ((args = PyTuple_Pack (1, string)))
-	{
-		retval = PyObject_CallObject (decoder->Decimal, args);
-		Py_DECREF (args);
-	}
-	return retval;
 }
 
 static PyObject *
@@ -847,10 +841,7 @@ read_number (Decoder *decoder)
 			str = PyUnicode_AsUTF8String (unicode);
 			Py_DECREF (unicode);
 			if (!str) return NULL;
-			if (decoder->use_float)
-				object = PyFloat_FromString (str, NULL);
-			else
-				object = make_Decimal (decoder, str);
+            object = PyFloat_FromString (str, NULL);
 			Py_DECREF (str);
 		}
 		
@@ -1068,6 +1059,7 @@ read_object (Decoder *decoder)
 static PyObject *
 json_read (Decoder *decoder)
 {
+    PyObject *kw = NULL;
 	skip_spaces (decoder);
 	switch (*decoder->index)
 	{
@@ -1083,8 +1075,6 @@ json_read (Decoder *decoder)
 			return read_array (decoder);
 		case '"':
 			return read_string (decoder);
-		{
-			PyObject *kw = NULL;
 		case 't':
 			if ((kw = keyword_compare (decoder, "true", 4, Py_True)))
 				return kw;
@@ -1097,8 +1087,15 @@ json_read (Decoder *decoder)
 			if ((kw = keyword_compare (decoder, "null", 4, Py_None)))
 				return kw;
 			break;
-		}
+        case 'I':
+            if ((kw = keyword_compare (decoder, "Infinity", 8,
+                                       decoder->infinity)))
+                return kw;
 		case '-':
+            if ((kw = keyword_compare (decoder, "-Infinity", 9,
+                                       decoder->neg_infinity)))
+                return kw;
+            /* fall through to number */
 		case '0':
 		case '1':
 		case '2':
@@ -1204,37 +1201,56 @@ unicode_autodetect (PyObject *bytestring)
  * a UTF-* encoded bytestring to unicode if needed.
 **/
 static int
-parse_unicode_arg (PyObject *args, PyObject *kwargs, PyObject **unicode,
-                   unsigned int *use_float)
+parse_unicode_arg (PyObject *args, PyObject *kwargs, PyObject **unicode)
 {
 	int retval;
 	PyObject *bytestring;
-	PyObject *exc_type, *exc_value, *exc_traceback;
+    
+    /* throw these away for now */
+    PyObject *parse_float = NULL,
+        *parse_int = NULL,
+        *parse_constant = NULL;
 	
-	static char *kwlist[] = {"string", "use_float", NULL};
+	static char *kwlist[] = {"string",
+                             "parse_float", "parse_int", "parse_constant",
+                             NULL};
 	
 	/* Try for the common case of a direct unicode string. */
-	retval = PyArg_ParseTupleAndKeywords (args, kwargs, "U|b:read",
-	                                      kwlist, unicode, use_float);
+	retval = PyArg_ParseTupleAndKeywords (args, kwargs, "U|OOO:read",
+	                                      kwlist, unicode,
+                                          &parse_float, &parse_int,
+                                          &parse_constant);
 	if (retval)
 	{
 		Py_INCREF (*unicode);
+        Py_XDECREF(parse_float);
+        Py_XDECREF(parse_int);
+        Py_XDECREF(parse_constant);
 		return retval;
 	}
-	
+
+    /* clear the parse exception from before, because we want the next
+       one to throw the error, not this one */
+	PyErr_Clear ();
 	/* Might have been passed a string. Try to autodecode it. */
-	PyErr_Fetch (&exc_type, &exc_value, &exc_traceback);
-	retval = PyArg_ParseTupleAndKeywords (args, kwargs, "S|b:read",
-	                                      kwlist, &bytestring, use_float);
-	PyErr_Restore (exc_type, exc_value, exc_traceback);
+	retval = PyArg_ParseTupleAndKeywords (args, kwargs, "S|OOO:read",
+	                                      kwlist, &bytestring,
+                                          &parse_float, &parse_int,
+                                          &parse_constant);
 	if (!retval)
 	{
+        /* success! */
+        Py_XDECREF(parse_float);
+        Py_XDECREF(parse_int);
+        Py_XDECREF(parse_constant);
 		return retval;
 	}
-	PyErr_Clear ();
 	
 	*unicode = unicode_autodetect (bytestring);
 	if (!(*unicode)) return 0;
+    Py_XDECREF(parse_float);
+    Py_XDECREF(parse_int);
+    Py_XDECREF(parse_constant);
 	return 1;
 }
 
@@ -1242,23 +1258,19 @@ static PyObject*
 _read_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 {
 	PyObject *result = NULL, *unicode;
-	Decoder decoder = {NULL};
-	unsigned int use_float = TRUE;
+	Decoder decoder = { NULL };
+    decoder.infinity = PyFloat_FromDouble(Py_HUGE_VAL);
+    decoder.neg_infinity = PyFloat_FromDouble(-Py_HUGE_VAL);
+    decoder.nan = PyFloat_FromDouble(Py_NAN);
 	
-	if (!parse_unicode_arg (args, kwargs, &unicode, &use_float))
+	if (!parse_unicode_arg (args, kwargs, &unicode))
 		return NULL;
 	
 	decoder.start = PyUnicode_AsUnicode (unicode);
 	decoder.end = decoder.start + PyUnicode_GetSize (unicode);
 	decoder.index = decoder.start;
-	decoder.use_float = use_float;
 	
-	if ((decoder.Decimal = jsonlib_import ("decimal", "Decimal")))
-	{
-		result = json_read (&decoder);
-	}
-	
-	Py_XDECREF (decoder.Decimal);
+    result = json_read (&decoder);
 	
 	if (result)
 	{
@@ -1275,6 +1287,10 @@ _read_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	
 	if (decoder.stringparse_buffer)
 		PyMem_Free (decoder.stringparse_buffer);
+
+    Py_XDECREF(decoder.infinity);
+    Py_XDECREF(decoder.neg_infinity);
+    Py_XDECREF(decoder.nan);
 	
 	return result;
 }
@@ -2196,7 +2212,7 @@ write_float (Encoder *encoder, PyObject *value)
 	double val = PyFloat_AS_DOUBLE (value);
 	if (Py_IS_NAN (val))
 	{
-        if (encoder->allow_non_numbers) {
+        if (encoder->allow_nan) {
             Py_INCREF(encoder->nan_str);
             return encoder->nan_str;
         }
@@ -2208,7 +2224,7 @@ write_float (Encoder *encoder, PyObject *value)
 	
 	if (Py_IS_INFINITY (val))
 	{
-        if (encoder->allow_non_numbers) {
+        if (encoder->allow_nan) {
             if (val > 0) {
                 Py_INCREF(encoder->inf_str);
                 return encoder->inf_str;
@@ -2285,30 +2301,6 @@ write_basic (Encoder *encoder, PyObject *value)
 		PyErr_SetString (WriteError,
 		                 "Cannot serialize complex numbers with"
 		                 " imaginary components.");
-		return NULL;
-	}
-	
-	if (PyObject_IsInstance (value, encoder->Decimal))
-	{
-		PyObject *serialized;
-		int valid;
-		
-		Py_INCREF (value);
-		serialized = PyObject_Str (value);
-		Py_DECREF (value);
-		
-		valid = check_valid_number (encoder, serialized);
-		if (valid == TRUE)
-			return serialized;
-		
-		if (valid == FALSE)
-		{
-			PyErr_Format (WriteError,
-			              "Cannot serialize %s.",
-			              PyString_AsString (serialized));
-		}
-		/* else valid == -1, error */
-		Py_DECREF (serialized);
 		return NULL;
 	}
 	
@@ -2460,8 +2452,7 @@ serializer_init_and_run_common (Encoder *encoder, PyObject *value)
         if (!encoder->comma) return FALSE;
     }
 	
-	if ((encoder->Decimal = jsonlib_import ("decimal", "Decimal")) &&
-	    (encoder->UserString = jsonlib_import ("UserString", "UserString")) &&
+	if ((encoder->UserString = jsonlib_import ("UserString", "UserString")) &&
 	    (encoder->true_str = ascii_constant ("true", -1)) &&
 	    (encoder->false_str = ascii_constant ("false", -1)) &&
 	    (encoder->null_str = ascii_constant ("null", -1)) &&
@@ -2473,7 +2464,6 @@ serializer_init_and_run_common (Encoder *encoder, PyObject *value)
 		succeeded = write_object (encoder, value, 0, FALSE);
 	}
 	
-	Py_XDECREF (encoder->Decimal);
 	Py_XDECREF (encoder->UserString);
 	Py_XDECREF (encoder->true_str);
 	Py_XDECREF (encoder->false_str);
@@ -2495,7 +2485,7 @@ static void init_encoder(Encoder *encoder)
 	encoder->ensure_ascii = TRUE;
 	encoder->coerce_keys = TRUE;
 	encoder->default_handler = Py_None;
-    encoder->allow_non_numbers = TRUE;
+    encoder->allow_nan = TRUE;
     encoder->colon = NULL;
     encoder->comma = NULL;
     encoder->escape_slash = TRUE;
@@ -2511,7 +2501,8 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	
 	static char *kwlist[] = {"value", "sort_keys", "indent",
 	                         "ensure_ascii", "coerce_keys", "encoding",
-	                         "default", "allow_non_numbers", "escape_slash",
+	                         "default", "allow_nan", "escape_slash",
+                             "check_circular",
                              "separators",
                              NULL};
 	
@@ -2522,7 +2513,7 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 
     PyObject *separators=NULL;
     
-	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "O|iOiizOiiO:write",
+	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "O|iOiizOiiiO:write",
 	                                  kwlist,
 	                                  &value,
 	                                  &encoder_base->sort_keys,
@@ -2531,14 +2522,15 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	                                  &encoder_base->coerce_keys,
 	                                  &encoding,
 	                                  &encoder_base->default_handler,
-                                      &encoder_base->allow_non_numbers,
+                                      &encoder_base->allow_nan,
                                       &encoder_base->escape_slash,
+                                      &encoder_base->check_circular,
                                       &separators)) {
             return NULL;
     }
 
     if (separators) {
-        int result = PyArg_ParseTuple(separators, "OO:one",
+        int result = PyArg_ParseTuple(separators, "OO:write",
                                       &encoder_base->comma,
                                       &encoder_base->colon);
         if (!result) {
@@ -2589,7 +2581,8 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	
 	static char *kwlist[] = {"value", "fp", "sort_keys", "indent",
 	                         "ensure_ascii", "coerce_keys", "encoding",
-	                         "default", "allow_non_numbers",
+	                         "default", "allow_nan",
+                             "check_circular",
                              "separators", NULL};
 	
 	/* Defaults */
@@ -2598,7 +2591,7 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	encoder.encoding = "utf-8";
 
     PyObject *separators=NULL;
-	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "OO|iOiizOiiO:dump",
+	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "OO|iOiizOiiiO:dump",
 	                                  kwlist,
 	                                  &value,
 	                                  &encoder.stream,
@@ -2608,13 +2601,14 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	                                  &encoder_base->coerce_keys,
 	                                  &encoder.encoding,
 	                                  &encoder_base->default_handler,
-                                      &encoder_base->allow_non_numbers,
+                                      &encoder_base->allow_nan,
                                       &encoder_base->escape_slash,
+                                      &encoder_base->check_circular,
                                       &separators))
 		return NULL;
 
     if (separators) {
-        int result = PyArg_ParseTuple(separators, "OO:two",
+        int result = PyArg_ParseTuple(separators, "OO:dump",
                                       &encoder_base->comma,
                                       &encoder_base->colon);
 
@@ -2641,18 +2635,13 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 static PyMethodDef module_methods[] = {
 	{"read", (PyCFunction) (_read_entry), METH_VARARGS|METH_KEYWORDS,
 	PyDoc_STR (
-	"read (string[, use_float])\n"
+	"read (string)\n"
 	"\n"
 	"Parse a JSON expression into a Python value.\n"
 	"\n"
 	"If ``string`` is a byte string, it will be converted to Unicode\n"
 	"before parsing.\n"
 	"\n"
-	"use_float=True\n"
-	"	If True, fractional and exponential numbers will be returned\n"
-	"	as instances of ``float``, rather than ``decimal.Decimal``.\n"
-	"	This may result in loss of precision, or unusual values\n"
-	"	when serializing the resulting object.\n"
 	)},
 	
 	{"dump", (PyCFunction) (_dump_entry), METH_VARARGS | METH_KEYWORDS,
@@ -2716,7 +2705,7 @@ static PyMethodDef module_methods[] = {
 	"	into a JSON-representable value. The default simply raises\n"
 	"	an UnknownSerializerError.\n"
     "\n"
-    "allow_non_numbers=True\n"
+    "allow_nan=True\n"
     "	Allow serialization of the python values inf (infinity), -inf\n"
     "	(negative infinity) and nan (not a number) as Infinity, -Infinity,\n"
     "	and NaN, respectively. Otherwise, will throw an exception\n"
