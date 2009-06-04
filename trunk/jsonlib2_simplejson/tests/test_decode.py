@@ -14,6 +14,10 @@ class TestDecode(TestCase):
         self.assert_(isinstance(rval, float))
         self.assertEquals(rval, 1.0)
 
+    def test_constant(self):
+        rval = json.loads('Infinity', parse_constant=lambda x: repr(x))
+        self.assertEquals(rval, "u'Infinity'")
+
     def test_decoder_optimizations(self):
         # Several optimizations were made that skip over calls to
         # the whitespace regex, so this test is designed to try and

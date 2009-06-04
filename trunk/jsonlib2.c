@@ -488,6 +488,28 @@ keyword_compare (Decoder *decoder, const char *expected, size_t len,
 			if (decoder->index[ii] != (unsigned char)(expected[ii]))
 				return NULL;
 		}
+
+        if (decoder->parse_constant) {
+            PyObject *unicode_constant =
+                PyUnicode_FromUnicode(decoder->index, len);
+            if (!unicode_constant)
+                return NULL;
+
+            PyObject *args = PyTuple_Pack(1, unicode_constant);
+            Py_DECREF(unicode_constant);
+            if (!args)
+                return NULL;
+
+            PyObject *object =
+                PyObject_CallObject(decoder->parse_constant, args);
+            Py_DECREF(args);
+
+            if (!object)
+                return NULL;
+
+            retval = object;
+        }
+        
 		decoder->index += len;
 		Py_INCREF (retval);
 		return retval;
@@ -2203,23 +2225,6 @@ write_mapping (Encoder *encoder, PyObject *mapping, int indent_level)
 	Py_XDECREF (post_value);
 	
 	return succeeded;
-}
-
-static int
-check_valid_number (Encoder *encoder, PyObject *serialized)
-{
-	int invalid;
-	
-	invalid = PyObject_RichCompareBool (encoder->inf_str, serialized, Py_NE);
-	if (invalid < 1) return invalid;
-	
-	invalid = PyObject_RichCompareBool (encoder->neg_inf_str, serialized, Py_NE);
-	if (invalid < 1) return invalid;
-	
-	invalid = PyObject_RichCompareBool (encoder->nan_str, serialized, Py_NE);
-	if (invalid < 1) return invalid;
-	
-	return TRUE;
 }
 
 static PyObject *
