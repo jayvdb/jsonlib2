@@ -321,6 +321,11 @@ parser_find_next_value (Decoder *decoder)
             if (c[1] == 'n' && c[2] == 'f' && c[3] == 'i' && c[4] == 'n' &&
                 c[5] == 'i' && c[6] == 't' && c[7] == 'y')
                 return 0;
+
+        case 'N':
+            if (c[1] == 'a' && c[2] == 'N')
+                return 0;
+        
 		default:
 			return 1;
 	}
@@ -1132,10 +1137,16 @@ json_read (Decoder *decoder)
 			if ((kw = keyword_compare (decoder, "null", 4, Py_None)))
 				return kw;
 			break;
+        case 'N':
+            if ((kw = keyword_compare (decoder, "NaN", 3, decoder->nan)))
+                return kw;
+            break;
         case 'I':
             if ((kw = keyword_compare (decoder, "Infinity", 8,
                                        decoder->infinity)))
                 return kw;
+            break;
+            
 		case '-':
             if ((kw = keyword_compare (decoder, "-Infinity", 9,
                                        decoder->neg_infinity)))
@@ -2381,7 +2392,9 @@ write_object (Encoder *encoder, PyObject *object,
 		PyErr_Clear ();
 		return write_iterable (encoder, object, indent_level);
 	}
-	
+
+    /* try calling iter(object) to see if its iterable */
+    
 	PyErr_Fetch (&exc_type, &exc_value, &exc_traceback);
 	iter = PyObject_GetIter (object);
 	PyErr_Restore (exc_type, exc_value, exc_traceback);
@@ -2393,7 +2406,7 @@ write_object (Encoder *encoder, PyObject *object,
 		Py_DECREF (iter);
 		return retval;
 	}
-	
+    
 	PyErr_Clear ();
 	if (encoder->default_handler == Py_None || in_unknown_hook)
 	{
@@ -2523,7 +2536,7 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	static char *kwlist[] = {"value", "sort_keys", "indent",
 	                         "ensure_ascii", "coerce_keys", "encoding",
 	                         "default", "allow_nan", "escape_slash",
-                             "check_circular",
+/*                              "check_circular", */
                              "separators",
                              NULL};
 	
@@ -2534,7 +2547,7 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 
     PyObject *separators=NULL;
     
-	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "O|iOiizOiiiO:write",
+	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "O|iOiizOiiO:write",
 	                                  kwlist,
 	                                  &value,
 	                                  &encoder_base->sort_keys,
@@ -2545,7 +2558,7 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	                                  &encoder_base->default_handler,
                                       &encoder_base->allow_nan,
                                       &encoder_base->escape_slash,
-                                      &encoder_base->check_circular,
+/*                                       &encoder_base->check_circular, */
                                       &separators)) {
             return NULL;
     }
@@ -2603,7 +2616,7 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	static char *kwlist[] = {"value", "fp", "sort_keys", "indent",
 	                         "ensure_ascii", "coerce_keys", "encoding",
 	                         "default", "allow_nan",
-                             "check_circular",
+/*                              "check_circular", */
                              "separators", NULL};
 	
 	/* Defaults */
@@ -2612,7 +2625,7 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	encoder.encoding = "utf-8";
 
     PyObject *separators=NULL;
-	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "OO|iOiizOiiiO:dump",
+	if (!PyArg_ParseTupleAndKeywords (args, kwargs, "OO|iOiizOiiO:dump",
 	                                  kwlist,
 	                                  &value,
 	                                  &encoder.stream,
@@ -2624,7 +2637,7 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
 	                                  &encoder_base->default_handler,
                                       &encoder_base->allow_nan,
                                       &encoder_base->escape_slash,
-                                      &encoder_base->check_circular,
+/*                                       &encoder_base->check_circular, */
                                       &separators))
 		return NULL;
 
