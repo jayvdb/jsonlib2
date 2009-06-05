@@ -16,6 +16,10 @@
 #define FALSE 0
 #define TRUE 1
 
+#ifndef Py_NAN
+#define Py_NAN (Py_HUGE_VAL *0.)
+#endif
+
 #if PY_VERSION_HEX < 0x02050000
 typedef int Py_ssize_t;
 #endif
