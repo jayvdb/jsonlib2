@@ -1,0 +1,35 @@
+#summary One-sentence summary of this page.
+
+= Introduction =
+
+jsonlib2 is almost a drop-in replacement for simplejson - at least that's how we use it at [http://www.freebase.com/ Freebase]. We use the more common features, and this library does its best to support a few more.
+
+= Supported API =
+
+== dump[s] ==
+
+* ensure_ascii
+* allow_nan
+* indent
+* separators
+* default
+
+== load[s] ==
+
+* parse_float
+* parse_int
+* parse_constant
+
+= Not yet supported =
+
+== load[s] ==
+* skipkeys - probably quite easy to implement
+* check_circular - probably quite easy to implement
+* cls - really might not be possible, due to C implementation
+* encoding - may be a big pain in the neck, because much of the code makes a lot of UTF8 assumptions.
+
+== dump[s] ==
+
+* encoding - again, might be a pain in the neck
+* cls - again, might not be possible due to C implementation
+* object_hook - probably quite easy to implement
