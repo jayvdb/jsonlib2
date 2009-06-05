@@ -6,7 +6,7 @@ jsonlib2 is almost a drop-in replacement for simplejson - at least that's how we
 
 = Supported API =
 
-== dump[[s]] ==
+== dump/dumps ==
 
   * ensure_ascii
   * allow_nan
@@ -14,21 +14,23 @@ jsonlib2 is almost a drop-in replacement for simplejson - at least that's how we
   * separators
   * default
 
-== load[s] ==
+== load/loads ==
 
   * parse_float
   * parse_int
   * parse_constant
 
-= Not yet supported =
+= API differences =
 
-== load[s] ==
+a few keywords are not supported, but more importantly, jsonlib2 tends to output 8-bit strings so that they can be dumped directly through HTTP rather than make a 2nd conversion back 
+
+== dump/dumps ==
   * skipkeys - probably quite easy to implement
   * check_circular - probably quite easy to implement
   * cls - really might not be possible, due to C implementation
   * encoding - may be a big pain in the neck, because much of the code makes a lot of UTF8 assumptions.
 
-== dump[s] ==
+== load/loads ==
 
   * encoding - again, might be a pain in the neck
   * cls - again, might not be possible due to C implementation
