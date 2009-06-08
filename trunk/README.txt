@@ -192,6 +192,11 @@ serialized. See the ``default`` parameter to ``write``.
 Change Log
 ==========
 
+1.5.1
+-----
+* Fixed problem compiling on Python before version 2.6, as reported by 
+  Carlo Barrettara and others
+
 1.5
 ---
 * Major API change - add lots of support for simplejson keywords
