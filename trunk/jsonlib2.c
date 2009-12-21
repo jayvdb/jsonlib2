@@ -64,11 +64,12 @@ typedef struct _Decoder {
 	
 	Py_UNICODE *stringparse_buffer;
 	size_t stringparse_buffer_size;
-	
+
     PyObject* infinity;
     PyObject* neg_infinity;
     PyObject* nan;
 
+    // borrowed refs
     PyObject* parse_float;
     PyObject* parse_int;
     PyObject* parse_constant;
@@ -2567,9 +2568,12 @@ _write_entry (PyObject *self, PyObject *args, PyObject *kwargs)
         int result = PyArg_ParseTuple(separators, "OO:write",
                                       &encoder_base->comma,
                                       &encoder_base->colon);
+        // ParseTuple uses borrowed refs
         if (!result) {
             return NULL;
         }
+        Py_INCREF(encoder_base->comma);
+        Py_INCREF(encoder_base->colon);
     }
 
     encoder_base->indent_string = normalize_indent_string(encoder_base->indent_string);
@@ -2649,6 +2653,8 @@ _dump_entry (PyObject *self, PyObject *args, PyObject *kwargs)
         if (!result) {
             return NULL;
         }
+        Py_INCREF(encoder_base->comma);
+        Py_INCREF(encoder_base->colon);
     }
 
     encoder_base->indent_string = normalize_indent_string(encoder_base->indent_string);
